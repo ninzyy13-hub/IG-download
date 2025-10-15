@@ -1,8 +1,10 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import asyncio
+import os
+import instaloader
 
-TOKEN = "8157857454:AAH5ZRQJpVCy_MtSNllkUA48Tcfpif035nY"
+TOKEN = os.getenv("TOKEN")
 CHANNEL_USERNAME = "@YourChannelHere"
 
 LANGUAGES = {
@@ -61,9 +63,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "instagram.com" in text:
         await update.message.reply_text(MESSAGES[lang]["waiting"])
-        # នៅទីនេះអាចបន្ថែម logic ទាញវីដេអូពេលក្រោយ
-        await asyncio.sleep(2)
-        await update.message.reply_text("✅ Done! (Mock download).")
+
+        # 🔹 Start downloading video using instaloader
+        try:
+            L = instaloader.Instaloader(dirname_pattern="downloads", download_videos=True, download_comments=False, download_geotags=False, save_metadata=False)
+            post_url = text
+            post = instaloader.Post.from_shortcode(L.context, post_url.split("/")[-2])
+            video_url = post.video_url
+
+            # 🔹 Send video as Telegram file
+            await update.message.reply_video(video_url)
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Cannot download video. Error: {str(e)}")
+
     else:
         await update.message.reply_text(MESSAGES[lang]["drop_link"])
 
