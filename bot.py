@@ -1,52 +1,25 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import asyncio
 import os
 import instaloader
+import tempfile
 
 TOKEN = os.getenv("TOKEN")
-CHANNEL_USERNAME = "@YourChannelHere"
+CHANNEL_USERNAME = "@REMEMBER_YOU 007"
 
-LANGUAGES = {
-    "km": "ភាសាខ្មែរ 🇰🇭",
-    "en": "English 🇺🇸",
-    "zh": "中文 🇨🇳",
-    "es": "Español 🇪🇸"
-}
-
+LANGUAGES = {"km":"ខ្មែរ 🇰🇭","en":"English 🇺🇸","zh":"中文 🇨🇳","es":"Español 🇪🇸"}
 MESSAGES = {
-    "km": {
-        "welcome": "សូមស្វាគមន៍មកកាន់ IG Video Downloader Bot 🎉",
-        "subscribe": f"សូមជាវឆាណែល {CHANNEL_USERNAME} មុននឹងប្រើសេវា។",
-        "drop_link": "អ្នកអាចទម្លាក់តំណវីដេអូ Instagram នៅទីនេះ។ ខ្ញុំនឹងជួយអ្នកដោនឡូត។",
-        "waiting": "សូមរង់ចាំ… ⏳"
-    },
-    "en": {
-        "welcome": "Welcome to IG Video Downloader Bot 🎉",
-        "subscribe": f"Please subscribe to {CHANNEL_USERNAME} before using this bot.",
-        "drop_link": "You can drop your Instagram video link here. I’ll help you download it.",
-        "waiting": "Please wait… ⏳"
-    },
-    "zh": {
-        "welcome": "欢迎使用 IG 视频下载机器人 🎉",
-        "subscribe": f"请先关注频道 {CHANNEL_USERNAME}。",
-        "drop_link": "请发送 Instagram 视频链接，我会帮你下载。",
-        "waiting": "请稍候… ⏳"
-    },
-    "es": {
-        "welcome": "Bienvenido al bot IG Video Downloader 🎉",
-        "subscribe": f"Por favor, suscríbete a {CHANNEL_USERNAME} antes de usar este bot.",
-        "drop_link": "Puedes enviar tu enlace de video de Instagram aquí. Te ayudaré a descargarlo.",
-        "waiting": "Por favor espera… ⏳"
-    }
+    "km": {"welcome":"ស្វាគមន៍🎉","subscribe":f"សូមជាវឆាណែល {CHANNEL_USERNAME}","drop_link":"ទម្លាក់តំណ Instagram","waiting":"សូមរង់ចាំ… ⏳"},
+    "en": {"welcome":"Welcome 🎉","subscribe":f"Please subscribe {CHANNEL_USERNAME}","drop_link":"Drop Instagram link","waiting":"Please wait… ⏳"},
+    "zh": {"welcome":"欢迎 🎉","subscribe":f"请先关注 {CHANNEL_USERNAME}","drop_link":"发送 Instagram 链接","waiting":"请稍候… ⏳"},
+    "es": {"welcome":"Bienvenido 🎉","subscribe":f"Por favor suscríbete {CHANNEL_USERNAME}","drop_link":"Envía enlace Instagram","waiting":"Por favor espera… ⏳"}
 }
 
 user_lang = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(v, callback_data=k)] for k, v in LANGUAGES.items()]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🌍 Please select your language:", reply_markup=reply_markup)
+    keyboard = [[InlineKeyboardButton(v, callback_data=k)] for k,v in LANGUAGES.items()]
+    await update.message.reply_text("🌍 Select language:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -54,29 +27,38 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_lang[query.from_user.id] = lang
     await query.answer()
     msg = MESSAGES[lang]
-    await query.edit_message_text(f"{msg['welcome']}\n\n{msg['subscribe']}")
+    await query.edit_message_text(f"{msg['welcome']}\n{msg['subscribe']}")
+
+def download_instagram_media(url):
+    L = instaloader.Instaloader(dirname_pattern=tempfile.gettempdir(), download_videos=True, save_metadata=False)
+    shortcode = url.split("/")[-2]
+    post = instaloader.Post.from_shortcode(L.context, shortcode)
+    files = []
+    if post.is_video:
+        files.append(post.video_url)
+    elif post.typename=="GraphSidecar":
+        for node in post.get_sidecar_nodes():
+            if node.is_video: files.append(node.video_url)
+            else: files.append(node.display_url)
+    else:
+        files.append(post.url)
+    return files
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     lang = user_lang.get(user_id, "en")
     text = update.message.text
-
     if "instagram.com" in text:
         await update.message.reply_text(MESSAGES[lang]["waiting"])
-
-        # 🔹 Start downloading video using instaloader
         try:
-            L = instaloader.Instaloader(dirname_pattern="downloads", download_videos=True, download_comments=False, download_geotags=False, save_metadata=False)
-            post_url = text
-            post = instaloader.Post.from_shortcode(L.context, post_url.split("/")[-2])
-            video_url = post.video_url
-
-            # 🔹 Send video as Telegram file
-            await update.message.reply_video(video_url)
-
+            media_urls = download_instagram_media(text)
+            for media_url in media_urls:
+                if media_url.endswith(".mp4"):
+                    await update.message.reply_video(media_url)
+                else:
+                    await update.message.reply_photo(media_url)
         except Exception as e:
-            await update.message.reply_text(f"❌ Cannot download video. Error: {str(e)}")
-
+            await update.message.reply_text(f"❌ Cannot download media. Error: {str(e)}")
     else:
         await update.message.reply_text(MESSAGES[lang]["drop_link"])
 
@@ -84,5 +66,4 @@ app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(set_language))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
 app.run_polling()
